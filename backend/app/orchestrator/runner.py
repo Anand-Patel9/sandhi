@@ -22,6 +22,7 @@ from ..db import repository as repo
 from ..db.session import session_scope
 from ..llm.client import OFFLINE, LLMClient
 from ..mcp_servers.client import MCPToolbox, default_toolbox
+from . import approvals
 from .engine import NegotiationEngine
 
 log = logging.getLogger(__name__)
@@ -159,22 +160,27 @@ def run_negotiation(negotiation_id: str) -> None:
         pace = settings.pace_seconds if pace is None else float(pace)
 
         assembly = build_engine(config)
-        seq = 0
         opening = [e for e in (assembly.connection_event(), assembly.data_event()) if e]
         for event in itertools.chain(opening, assembly.engine.run()):
-            seq += 1
             with session_scope() as db:
-                repo.add_event(db, negotiation_id, seq, event)
+                repo.append_event(db, negotiation_id, event)
             if pace and event.kind in ("offer", "mediation", "rate", "shock", "accept"):
                 time.sleep(pace)
 
         outcome = assembly.engine.outcome.to_dict()
         outcome["engines"] = assembly.engines
         outcome["transport"] = assembly.transport
-        status = "agreed" if assembly.engine.outcome.agreed else "no_deal"
         state = final_state(assembly) if settings.sandbox_mode else {}
+        needs_approval = config.get("require_approval", settings.require_approval)
         with session_scope() as db:
-            repo.finish(db, negotiation_id, status, outcome, state)
+            if not assembly.engine.outcome.agreed:
+                repo.finish(db, negotiation_id, "no_deal", outcome, state)
+            elif needs_approval:
+                outcome["required_approvals"] = approvals.required_roles(assembly.engine.outcome.terms)
+                repo.finish(db, negotiation_id, "awaiting_approval", outcome, state)
+                repo.append_event(db, negotiation_id, approvals.request_event(outcome["required_approvals"]))
+            else:
+                repo.finish(db, negotiation_id, "agreed", outcome, state)
     except Exception as exc:
         log.exception("Negotiation %s failed", negotiation_id)
         with session_scope() as db:

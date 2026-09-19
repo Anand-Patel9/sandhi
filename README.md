@@ -16,6 +16,8 @@ Sandhi gives each party its own autonomous agent with private goals, constraints
 - **The LLM argues, the code decides.** Deterministic utility functions decide what an agent can accept; the LLM chooses among valid offers and writes the message.
 - **Live data over MCP.** Agents read their company's cash position from ERP, TReDS market rates and payment-compliance rules through Model Context Protocol tool servers.
 - **Guarded messages.** Private numbers are redacted and mis-quoted prices are rejected before any message is sent.
+- **Humans sign off.** Agents agree on terms; each company's authorised user approves before the deal is final, and a term-sheet PDF is issued.
+- **Tamper-evident audit trail.** Every event is hash-chained, and the chain can be verified at any time.
 - **Measured outcomes.** Every deal is compared with single-objective AI baselines and the full-information optimum.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
@@ -30,12 +32,24 @@ cp .env.example .env                                  # add an LLM key, or keep 
 uvicorn app.main:app --reload
 ```
 
-Open http://localhost:8000 for the interactive API documentation.
+Open http://localhost:8000 for the interactive API documentation, then click **Authorize** and sign in with a demo account.
 
-Start a negotiation:
+| Demo account | Organisation | Role |
+|---|---|---|
+| `supplier@sandhi.demo` | Rajkot Castings Pvt Ltd | MSME supplier |
+| `buyer@sandhi.demo` | Bharat Motors Ltd | Corporate buyer |
+| `financier@sandhi.demo` | Trident TReDS Bank | TReDS financier |
+| `admin@sandhi.demo` | Sandhi Platform | Platform admin (can sign for any party in the sandbox) |
+
+All demo accounts use the password `sandhi-demo`.
+
+Sign in and start a negotiation:
 
 ```bash
-curl -X POST http://localhost:8000/api/negotiations \
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login -H "Content-Type: application/json" \
+  -d '{"email": "admin@sandhi.demo", "password": "sandhi-demo"}' | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+curl -X POST http://localhost:8000/api/negotiations -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"scenario": "auto_parts", "shocks": [{"key": "rate_hike", "at_round": 4}]}'
 ```
@@ -43,8 +57,10 @@ curl -X POST http://localhost:8000/api/negotiations \
 Follow it live:
 
 ```bash
-curl -N http://localhost:8000/api/negotiations/<id>/stream
+curl -N "http://localhost:8000/api/negotiations/<id>/stream?token=$TOKEN"
 ```
+
+When the agents agree, each party approves with `POST /api/negotiations/<id>/approval`; the term sheet is then available at `GET /api/negotiations/<id>/term-sheet`.
 
 List the MCP tool servers and their tools:
 

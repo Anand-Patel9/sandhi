@@ -80,6 +80,15 @@ Agents load their data when a session opens and record which tools they used; th
 
 In the hosted setup the three servers are mounted under `/mcp/{name}/`. A customer connects its own systems by pointing `ERP_MCP_URL` (or the others) at an MCP server in front of its ERP, for example Tally or SAP, with no change to agent code. The bundled servers use sandbox data.
 
+## Governance: people, approval and audit
+
+- **Organisations and users.** Every user belongs to an organisation whose kind is `supplier`, `buyer`, `financier` or `platform`. Sign-in returns a signed JWT (HS256); passwords are stored as scrypt hashes. All negotiation endpoints require a token; the live stream also accepts it as a `token` query parameter because browsers' EventSource cannot send headers.
+- **Human approval.** When agents agree, the negotiation moves to `awaiting_approval`. The supplier and buyer, plus the financier when TReDS is used, must each approve through an authorised user of that organisation. Any rejection makes the deal `rejected`; when all approve it becomes `agreed`. Platform admins can sign on behalf of a party in the sandbox. Automated runs can opt out with `require_approval: false`.
+- **Audit trail.** Every event is stored with the SHA-256 hash of its content and of the previous event's hash. `GET /api/negotiations/{id}/audit` recomputes the chain and reports the first altered entry, so any edit to the log after the fact is detected.
+- **Term sheet.** Once agreed, a PDF term sheet lists the parties, commercial terms, compliance report, approvals and the audit chain head.
+
+Negotiation states: `pending` → `running` → `awaiting_approval` → `agreed` or `rejected`; or `running` → `no_deal`; `failed` on errors.
+
 ## Agent decision model
 
 | Agent | Utility | Walk-away option |
@@ -107,6 +116,7 @@ sandhi/
 │   │   ├── main.py                 FastAPI app factory
 │   │   ├── config.py               Settings from environment
 │   │   ├── core/                   Pure domain logic, no I/O
+│   │   │   ├── audit.py            Hash-chain construction and verification
 │   │   │   ├── models.py           Terms, deal spec, private profiles, events
 │   │   │   ├── utilities.py        Utility functions per party
 │   │   │   ├── strategy.py         Concession curve, offer grid, ranking
@@ -119,6 +129,7 @@ sandhi/
 │   │   │   ├── negotiator.py       Shared supplier/buyer behaviour
 │   │   │   ├── supplier.py, buyer.py, financier.py, mediator.py
 │   │   ├── orchestrator/
+│   │   │   ├── approvals.py        Human sign-off rules
 │   │   │   ├── engine.py           Negotiation protocol (state machine)
 │   │   │   └── runner.py           Background execution and persistence
 │   │   ├── db/                     SQLAlchemy session, tables, repository
@@ -133,7 +144,8 @@ sandhi/
 │   │   │   ├── erp.py              Company cash position (sandbox ledger)
 │   │   │   ├── registry.py         Hosted servers and their lifecycle
 │   │   │   └── client.py           Synchronous MCP toolbox for agents
-│   │   └── auth/                   Authentication and organisations      (Phase B4)
+│   │   ├── auth/                   Security, current-user dependency, demo seed
+│   │   └── documents/              Term-sheet PDF
 │   └── tests/
 └── frontend/                       React + Vite + TypeScript web app      (Phases F1–F3)
 ```
@@ -144,6 +156,8 @@ sandhi/
 |---|---|---|
 | GET | `/` | Redirects to the API documentation |
 | GET | `/api/health` | Service status |
+| POST | `/api/auth/login` | Sign in, returns an access token |
+| GET | `/api/auth/me` | Current user and organisation |
 | GET | `/api/agents` | Hosted agents and their A2A Agent Cards |
 | GET | `/api/tools` | MCP tool servers, status and tools |
 | GET | `/api/scenarios` | Scenario catalog with public spec and default profiles |
@@ -153,7 +167,10 @@ sandhi/
 | GET | `/api/negotiations/{id}` | Status and outcome |
 | GET | `/api/negotiations/{id}/events` | Event log |
 | GET | `/api/negotiations/{id}/stream` | Live Server-Sent Events stream |
+| POST | `/api/negotiations/{id}/approval` | Approve or reject agreed terms for your organisation |
+| GET | `/api/negotiations/{id}/audit` | Verify the hash-chained event log |
 | GET | `/api/negotiations/{id}/evaluation` | Comparison with baselines, deal zone |
+| GET | `/api/negotiations/{id}/term-sheet` | PDF term sheet (after approval) |
 
 A2A endpoints per agent (`supplier`, `buyer`, `financier`):
 
@@ -168,8 +185,11 @@ Interactive documentation is served at `/docs`.
 
 ## Data model
 
-- `negotiations`: id, scenario, status (`pending`, `running`, `agreed`, `no_deal`, `failed`), configuration, outcome, final state (sandbox only), timestamps.
-- `negotiation_events`: ordered event log per negotiation (offers, rate quotes, shocks, mediation, privacy redactions, acceptance), with the terms and per-party scores.
+- `organizations`: name and kind (supplier, buyer, financier, platform).
+- `users`: email, name, scrypt password hash, organisation.
+- `negotiations`: id, scenario, status, configuration, outcome, final state (sandbox only), creator, timestamps.
+- `negotiation_events`: ordered, hash-chained event log per negotiation (offers, rate quotes, shocks, mediation, privacy redactions, acceptance, approvals).
+- `approvals`: one decision per party per negotiation, with the signing user and note.
 
 ## Deployment
 
@@ -186,5 +206,5 @@ Interactive documentation is served at `/docs`.
 | B1 | Core engine as a service, REST API, live stream, persistence, tests | Done |
 | B2 | A2A agent servers with Agent Cards; orchestrator negotiates over A2A | Done |
 | B3 | MCP servers for compliance, TReDS rates and ERP cash data | Done |
-| B4 | Authentication, organisations, human approval, audit trail, term sheet | Planned |
+| B4 | Authentication, organisations, human approval, audit trail, term sheet | Done |
 | F1–F3 | Web app: dashboard, negotiation room, policy console, outcomes | Planned |

@@ -17,7 +17,9 @@ def _free_port() -> int:
 
 
 PORT = _free_port()
-os.environ.setdefault("DATABASE_URL", "sqlite:///./test_sandhi.db")
+TEST_DB = Path(__file__).resolve().parents[1] / "test_sandhi.db"
+TEST_DB.unlink(missing_ok=True)
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{TEST_DB.as_posix()}")
 os.environ.setdefault("PACE_SECONDS", "0")
 os.environ.setdefault("DEFAULT_LLM_PROVIDER", "offline")
 os.environ.setdefault("AGENT_TRANSPORT", "a2a")

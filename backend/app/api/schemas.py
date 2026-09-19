@@ -10,6 +10,59 @@ from ..core.scenarios import SCENARIOS, SHOCKS
 
 Provider = Literal["offline", "gemini", "groq", "openai", "anthropic"]
 Role = Literal["supplier", "buyer", "financier", "mediator"]
+Party = Literal["supplier", "buyer", "financier"]
+
+
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class OrgOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    kind: str
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    email: str
+    name: str
+    org: OrgOut
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
+
+
+class ApprovalIn(BaseModel):
+    decision: Literal["approve", "reject"]
+    role: Optional[Party] = None
+    note: str = Field("", max_length=500)
+
+
+class ApprovalOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    role: str
+    decision: str
+    note: str
+    user_email: str
+    created_at: datetime
+
+
+class AuditOut(BaseModel):
+    negotiation_id: str
+    valid: bool
+    events: int
+    head_hash: str
+    broken_at_seq: Optional[int] = None
 
 
 class TermsOut(BaseModel):
@@ -78,6 +131,7 @@ class NegotiationCreate(BaseModel):
     overrides: Overrides = Overrides()
     llm: LLMConfig = LLMConfig()
     pace_seconds: Optional[float] = Field(None, ge=0, le=5)
+    require_approval: Optional[bool] = None
 
     @model_validator(mode="after")
     def _check(self):
@@ -100,6 +154,8 @@ class NegotiationOut(BaseModel):
     config: dict
     outcome: Optional[dict] = None
     error: Optional[str] = None
+    created_by: Optional[str] = None
+    approvals: List[ApprovalOut] = []
     created_at: datetime
     finished_at: Optional[datetime] = None
 
@@ -115,6 +171,7 @@ class EventOut(BaseModel):
     terms: Optional[TermsOut] = None
     utilities: dict = {}
     meta: dict = {}
+    hash: str = ""
     created_at: datetime
 
 

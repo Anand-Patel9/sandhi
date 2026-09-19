@@ -1,4 +1,4 @@
-"""Negotiation lifecycle: create, read, live stream, and evaluation."""
+"""Negotiation lifecycle: create, read, live stream, approval, audit, evaluation and term sheet."""
 from __future__ import annotations
 
 import asyncio
@@ -6,19 +6,24 @@ import json
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
-from ...core import metrics
+from ...auth.deps import current_user
+from ...core import audit, metrics
 from ...core.models import Scenario, Terms
 from ...core.scenarios import SCENARIOS
 from ...db import repository as repo
 from ...db.session import get_db, session_scope
-from ...orchestrator import runner
-from ..schemas import EvaluationOut, EventOut, NegotiationCreate, NegotiationOut
+from ...db.tables import UserRow
+from ...documents.term_sheet import build_term_sheet
+from ...orchestrator import approvals, runner
+from ..schemas import (ApprovalIn, AuditOut, EvaluationOut, EventOut, NegotiationCreate,
+                       NegotiationOut)
 
-router = APIRouter(prefix="/negotiations", tags=["negotiations"])
+router = APIRouter(prefix="/negotiations", tags=["negotiations"], dependencies=[Depends(current_user)])
 POLL_SECONDS = 0.3
+EVALUABLE = {"agreed", "no_deal", "awaiting_approval", "rejected"}
 
 
 def _get_or_404(db: Session, negotiation_id: str):
@@ -29,9 +34,10 @@ def _get_or_404(db: Session, negotiation_id: str):
 
 
 @router.post("", response_model=NegotiationOut, status_code=201)
-def create_negotiation(body: NegotiationCreate, db: Session = Depends(get_db)):
+def create_negotiation(body: NegotiationCreate, db: Session = Depends(get_db),
+                       user: UserRow = Depends(current_user)):
     config = body.model_dump(exclude_none=True)
-    row = repo.create_negotiation(db, body.scenario, SCENARIOS[body.scenario].title, config)
+    row = repo.create_negotiation(db, body.scenario, SCENARIOS[body.scenario].title, config, user.id)
     db.commit()
     runner.submit(row.id)
     return row
@@ -72,7 +78,7 @@ async def stream_events(negotiation_id: str, request: Request, after: int = Quer
             for p in payloads:
                 last = p["seq"]
                 yield f"id: {p['seq']}\nevent: {p['kind']}\ndata: {json.dumps(p)}\n\n"
-            if status in repo.TERMINAL and not payloads:
+            if status in repo.STREAM_END and not payloads:
                 yield f"event: end\ndata: {json.dumps({'status': status})}\n\n"
                 break
             await asyncio.sleep(POLL_SECONDS)
@@ -81,14 +87,40 @@ async def stream_events(negotiation_id: str, request: Request, after: int = Quer
     return StreamingResponse(event_source(), media_type="text/event-stream", headers=headers)
 
 
+@router.post("/{negotiation_id}/approval", response_model=NegotiationOut)
+def decide(negotiation_id: str, body: ApprovalIn, db: Session = Depends(get_db),
+           user: UserRow = Depends(current_user)):
+    row = _get_or_404(db, negotiation_id)
+    try:
+        return approvals.decide(db, row, user, body.decision, body.role, body.note)
+    except approvals.ApprovalError as err:
+        raise HTTPException(err.status_code, err.detail)
+
+
+@router.get("/{negotiation_id}/audit", response_model=AuditOut)
+def verify_audit(negotiation_id: str, db: Session = Depends(get_db)):
+    _get_or_404(db, negotiation_id)
+    return AuditOut(negotiation_id=negotiation_id, **audit.verify(repo.events_after(db, negotiation_id)))
+
+
 @router.get("/{negotiation_id}/evaluation", response_model=EvaluationOut)
 def get_evaluation(negotiation_id: str, db: Session = Depends(get_db)):
     row = _get_or_404(db, negotiation_id)
-    if row.status not in ("agreed", "no_deal"):
-        raise HTTPException(409, f"Evaluation is available once the negotiation finishes (status: {row.status})")
+    if row.status not in EVALUABLE:
+        raise HTTPException(409, f"Evaluation is available once agents finish (status: {row.status})")
     if not row.final_state:
         raise HTTPException(403, "Evaluation requires sandbox mode")
     sc = Scenario.from_dict(row.final_state)
     terms = Terms.from_dict((row.outcome or {}).get("terms"))
-    return EvaluationOut(negotiation_id=row.id, deal_zone=metrics.deal_zone(sc),
-                         **metrics.summary(sc, terms))
+    return EvaluationOut(negotiation_id=row.id, deal_zone=metrics.deal_zone(sc), **metrics.summary(sc, terms))
+
+
+@router.get("/{negotiation_id}/term-sheet", response_class=Response,
+            responses={200: {"content": {"application/pdf": {}}}})
+def term_sheet(negotiation_id: str, db: Session = Depends(get_db)):
+    row = _get_or_404(db, negotiation_id)
+    if row.status != "agreed":
+        raise HTTPException(409, f"A term sheet is issued once all parties approve (status: {row.status})")
+    pdf = build_term_sheet(row, audit.verify(repo.events_after(db, negotiation_id)))
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="sandhi-term-sheet-{row.id[:8]}.pdf"'})

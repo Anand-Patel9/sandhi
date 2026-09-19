@@ -10,31 +10,34 @@ from fastapi.responses import RedirectResponse
 
 from .a2a.protocol import ROLES
 from .a2a.server import build_agent_app
-from .api.routes import agents, catalog, health, negotiations, tools
+from .api.routes import agents, auth, catalog, health, negotiations, tools
+from .auth.seed import seed_demo_users
 from .mcp_servers import registry as mcp_registry
 from .config import get_settings
 from .db.session import init_db
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logging.getLogger("a2a.server.events.event_queue_v2").setLevel(logging.ERROR)
-logging.getLogger("httpx").setLevel(logging.WARNING)
+for noisy in ("httpx", "httpx2", "httpcore", "httpcore2"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 logging.getLogger("mcp").setLevel(logging.WARNING)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    seed_demo_users()
     async with mcp_registry.running():
         yield
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title=settings.app_name, version="0.3.0", lifespan=lifespan,
+    app = FastAPI(title=settings.app_name, version="0.4.0", lifespan=lifespan,
                   description="Sandhi: autonomous agents that negotiate MSME trade-credit agreements.")
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True,
                        allow_methods=["*"], allow_headers=["*"])
-    for module in (health, catalog, agents, tools, negotiations):
+    for module in (health, auth, catalog, agents, tools, negotiations):
         app.include_router(module.router, prefix="/api")
 
     app.state.agent_cards = {}

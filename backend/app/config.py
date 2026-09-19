@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     erp_mcp_url: Optional[str] = None
     mcp_timeout_seconds: float = 20.0
 
+    jwt_secret: str = "dev-only-secret-change-before-deploying-sandhi"
+    access_token_minutes: int = 720
+    seed_demo_users: bool = True
+    demo_password: str = "sandhi-demo"
+    require_approval: bool = True
+
     pace_seconds: float = 0.4
     max_concurrent_negotiations: int = 4
     sandbox_mode: bool = True
