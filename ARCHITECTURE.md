@@ -1,0 +1,144 @@
+# Architecture
+
+TradeCredit is a multi-agent negotiation platform for MSME trade credit. An MSME supplier, a corporate buyer and a TReDS financier are each represented by an autonomous agent with its own goals and private data. A neutral orchestrator runs the negotiation protocol and a mediator proposes compromises. The platform records every step and evaluates the outcome.
+
+## Design principles
+
+1. **Private data stays with its owner.** The orchestrator never reads an agent's private profile. It only sees public offers, messages and each agent's self-reported score of an offer. In production each company runs its own agent; the agents talk over the A2A protocol.
+2. **The LLM argues, the code decides.** Each agent's utility function is deterministic code. Code produces the set of offers the agent can afford at this round; the LLM chooses among them and writes the message. An LLM cannot push an agent below its walk-away point.
+3. **Every message is guarded.** A consistency guard rejects messages that quote a price different from the actual offer. A privacy guard redacts private numbers before a message leaves the agent.
+4. **Nothing depends on the LLM being available.** Every LLM step has a deterministic fallback, so negotiations complete even without an API key or during provider outages.
+5. **Agents are swappable behind ports.** The orchestrator depends on `NegotiatorPort` and `FinancierPort` interfaces. In-process agents and remote A2A agents implement the same interface.
+
+## System overview
+
+```
+                         ┌──────────────────────────────┐
+  Web app (React) ──────►│  API gateway (FastAPI)       │
+     REST + SSE          │  auth · validation · stream  │
+                         └──────────────┬───────────────┘
+                                        │
+                         ┌──────────────▼───────────────┐
+                         │  Negotiation orchestrator    │
+                         │  protocol · shocks · mediator│
+                         │  approvals · audit trail     │
+                         └──────┬─────────┬─────────┬───┘
+                     A2A        │         │         │        A2A
+               ┌────────────────▼┐  ┌─────▼─────┐  ┌▼────────────────┐
+               │ Supplier agent  │  │ Buyer     │  │ Financier agent │
+               │ private profile │  │ agent     │  │ private profile │
+               └───────┬─────────┘  └─────┬─────┘  └───────┬─────────┘
+                  MCP  │             MCP  │           MCP  │
+               ┌───────▼─────┐   ┌────────▼───────┐  ┌─────▼──────────┐
+               │ ERP / cash  │   │ Compliance     │  │ TReDS rates /  │
+               │ flow tools  │   │ (MSMED, 43B(h))│  │ credit tools   │
+               └─────────────┘   └────────────────┘  └────────────────┘
+
+                         ┌──────────────────────────────┐
+                         │ PostgreSQL (Supabase)        │
+                         │ negotiations · events · orgs │
+                         └──────────────────────────────┘
+```
+
+## Negotiation protocol
+
+Each round:
+
+1. Scheduled market shocks are applied. The orchestrator applies the public effect (for example the RBI bank rate); each agent applies the private effect to its own profile.
+2. The financier publishes its TReDS discounting rate for the round.
+3. The supplier proposes; the buyer and financier respond.
+4. The buyer counter-proposes; the supplier and financier respond.
+5. Every third round without agreement, the mediator proposes a package built only from public offers.
+
+A deal closes when the responding principal and the financier accept. If the deadline passes, every party falls back to its walk-away option.
+
+Issues negotiated: unit price, payment days, whether the invoice is discounted on TReDS, and the share of the discounting cost the buyer absorbs.
+
+## Agent decision model
+
+| Agent | Utility | Walk-away option |
+|---|---|---|
+| Supplier | Cash received − production cost − time value of waiting − liquidity penalty after cash runway | Alternative buyer's price and terms |
+| Buyer | −(invoice cost + absorbed discount cost − payment float + Section 43B(h) exposure + expected MSMED Act interest) | Alternate supplier's price plus switching cost |
+| Financier | Discount income − funding cost − expected credit loss − minimum spread | Not participating (zero) |
+
+Concession follows a time-dependent tactic: aspiration(t) = ideal × (1 − (t/T)^(1/β)). A high β concedes early (an urgent MSME); a low β holds out (a powerful buyer). Each counter-offer is the package closest to the other side's last offer that still meets the agent's current aspiration, so agents trade across issues instead of only splitting the price.
+
+## Evaluation
+
+Finished negotiations are compared with single-objective baselines (buyer-only AI, legacy procurement AI, supplier-only AI, industry status quo) and with the full-information Nash bargaining optimum. Metrics: viability (every party beats its walk-away), efficiency against the optimum, Pareto efficiency and balance between supplier and buyer. Evaluation needs every party's private end state, so it runs only in sandbox mode, where the platform hosts all agents.
+
+## Repository structure
+
+```
+tradecredit/
+├── README.md
+├── ARCHITECTURE.md
+├── backend/
+│   ├── requirements.txt
+│   ├── .env.example
+│   ├── app/
+│   │   ├── main.py                 FastAPI app factory
+│   │   ├── config.py               Settings from environment
+│   │   ├── core/                   Pure domain logic, no I/O
+│   │   │   ├── models.py           Terms, deal spec, private profiles, events
+│   │   │   ├── utilities.py        Utility functions per party
+│   │   │   ├── strategy.py         Concession curve, offer grid, ranking
+│   │   │   ├── guards.py           Privacy and consistency guards
+│   │   │   ├── scenarios.py        Scenarios and market shocks
+│   │   │   └── metrics.py          Baselines, optimum, Pareto, deal zone
+│   │   ├── llm/client.py           Provider-agnostic LLM client
+│   │   ├── agents/                 Agent implementations
+│   │   │   ├── base.py             Ports (interfaces) and turn context
+│   │   │   ├── negotiator.py       Shared supplier/buyer behaviour
+│   │   │   ├── supplier.py, buyer.py, financier.py, mediator.py
+│   │   ├── orchestrator/
+│   │   │   ├── engine.py           Negotiation protocol (state machine)
+│   │   │   └── runner.py           Background execution and persistence
+│   │   ├── db/                     SQLAlchemy session, tables, repository
+│   │   ├── api/                    Schemas and REST/SSE routes
+│   │   ├── a2a/                    A2A agent servers and client ports    (Phase B2)
+│   │   ├── mcp_servers/            Compliance, TReDS and ERP MCP servers (Phase B3)
+│   │   └── auth/                   Authentication and organisations      (Phase B4)
+│   └── tests/
+└── frontend/                       React + Vite + TypeScript web app      (Phases F1–F3)
+```
+
+## API (current)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/health` | Service status |
+| GET | `/api/scenarios` | Scenario catalog with public spec and default profiles |
+| GET | `/api/shocks` | Available market shocks |
+| POST | `/api/negotiations` | Start a negotiation (runs in the background) |
+| GET | `/api/negotiations` | List negotiations |
+| GET | `/api/negotiations/{id}` | Status and outcome |
+| GET | `/api/negotiations/{id}/events` | Event log |
+| GET | `/api/negotiations/{id}/stream` | Live Server-Sent Events stream |
+| GET | `/api/negotiations/{id}/evaluation` | Comparison with baselines, deal zone |
+
+Interactive documentation is served at `/docs`.
+
+## Data model
+
+- `negotiations`: id, scenario, status (`pending`, `running`, `agreed`, `no_deal`, `failed`), configuration, outcome, final state (sandbox only), timestamps.
+- `negotiation_events`: ordered event log per negotiation (offers, rate quotes, shocks, mediation, privacy redactions, acceptance), with the terms and per-party scores.
+
+## Deployment
+
+| Component | Target |
+|---|---|
+| Backend | Docker container on Render |
+| Database | Supabase PostgreSQL |
+| Frontend | Vercel |
+
+## Delivery phases
+
+| Phase | Scope | Status |
+|---|---|---|
+| B1 | Core engine as a service, REST API, live stream, persistence, tests | Done |
+| B2 | A2A agent servers with Agent Cards; orchestrator negotiates over A2A | Planned |
+| B3 | MCP servers for compliance, TReDS rates and ERP cash data | Planned |
+| B4 | Authentication, organisations, human approval, audit trail, term sheet | Planned |
+| F1–F3 | Web app: dashboard, negotiation room, policy console, outcomes | Planned |
