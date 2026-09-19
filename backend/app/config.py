@@ -10,10 +10,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_name: str = "TradeCredit API"
+    app_name: str = "Sandhi API"
     environment: str = "development"
-    database_url: str = "sqlite:///./tradecredit.db"
+    database_url: str = "sqlite:///./sandhi.db"
     cors_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+
+    public_base_url: str = "http://127.0.0.1:8000"
+    agent_transport: str = "a2a"
+    supplier_agent_url: Optional[str] = None
+    buyer_agent_url: Optional[str] = None
+    financier_agent_url: Optional[str] = None
+    a2a_timeout_seconds: float = 60.0
 
     pace_seconds: float = 0.4
     max_concurrent_negotiations: int = 4
@@ -28,6 +35,9 @@ class Settings(BaseSettings):
     groq_model: Optional[str] = None
     openai_model: Optional[str] = None
     anthropic_model: Optional[str] = None
+
+    def agent_url(self, role: str) -> str:
+        return getattr(self, f"{role}_agent_url", None) or f"{self.public_base_url.rstrip('/')}/a2a/{role}"
 
     def api_key_for(self, provider: str) -> Optional[str]:
         return getattr(self, f"{provider}_api_key", None)

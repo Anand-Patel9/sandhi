@@ -1,10 +1,21 @@
-# TradeCredit
+# Sandhi
 
-**Autonomous agents that negotiate fair, compliant payment terms between Indian MSMEs, corporate buyers and invoice financiers.**
+**Autonomous AI agents that negotiate fair, compliant payment terms between Indian MSMEs, corporate buyers and invoice financiers.**
 
-Indian MSMEs have an estimated ₹7–8 lakh crore stuck in delayed payments (GAME–FISME–C2FO Delayed Payments Report 3.0; Economic Survey 2025-26). Buyers stretch terms, suppliers run out of cash, and the MSMED Act 45-day limit and Section 43B(h) of the Income Tax Act now make late payment costly for buyers too. A single AI optimising one party's objective produces terms another party rejects, and the deal collapses.
+*Sandhi (संधि) is Sanskrit for "treaty". In Kautilya's Arthashastra it is the policy of reaching agreement with parties whose interests differ from yours.*
 
-TradeCredit gives each party its own autonomous agent with private goals and data. The agents negotiate price, payment days, TReDS invoice discounting and cost sharing, respond to market shocks, and reach a deal every party prefers to walking away.
+## The problem
+
+Indian MSMEs have an estimated ₹7–8 lakh crore stuck in delayed payments (GAME–FISME–C2FO Delayed Payments Report 3.0; Economic Survey 2025-26). Buyers stretch payment terms, suppliers run short of cash, and the MSMED Act 45-day limit and Section 43B(h) of the Income Tax Act now make late payment costly for buyers too. A single AI optimising one party's objective produces terms another party rejects, and the deal collapses.
+
+## The solution
+
+Sandhi gives each party its own autonomous agent with private goals, constraints and data. The agents negotiate price, payment days, TReDS invoice discounting and cost sharing over the open **A2A (Agent2Agent) protocol**, adapt to market shocks, and reach a deal every party prefers to walking away.
+
+- **Private by design.** Each agent keeps its costs, cash position and walk-away options inside its own server. The orchestrator only sees public offers.
+- **The LLM argues, the code decides.** Deterministic utility functions decide what an agent can accept; the LLM chooses among valid offers and writes the message.
+- **Guarded messages.** Private numbers are redacted and mis-quoted prices are rejected before any message is sent.
+- **Measured outcomes.** Every deal is compared with single-objective AI baselines and the full-information optimum.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 
@@ -18,7 +29,7 @@ cp .env.example .env                                  # add an LLM key, or keep 
 uvicorn app.main:app --reload
 ```
 
-Open http://localhost:8000/docs for the interactive API.
+Open http://localhost:8000 for the interactive API documentation.
 
 Start a negotiation:
 
@@ -32,6 +43,12 @@ Follow it live:
 
 ```bash
 curl -N http://localhost:8000/api/negotiations/<id>/stream
+```
+
+Inspect an agent's A2A Agent Card:
+
+```bash
+curl http://localhost:8000/a2a/supplier/.well-known/agent-card.json
 ```
 
 ## Tests

@@ -1,6 +1,6 @@
 # Architecture
 
-TradeCredit is a multi-agent negotiation platform for MSME trade credit. An MSME supplier, a corporate buyer and a TReDS financier are each represented by an autonomous agent with its own goals and private data. A neutral orchestrator runs the negotiation protocol and a mediator proposes compromises. The platform records every step and evaluates the outcome.
+Sandhi is a multi-agent negotiation platform for MSME trade credit. An MSME supplier, a corporate buyer and a TReDS financier are each represented by an autonomous agent with its own goals and private data. A neutral orchestrator runs the negotiation protocol and a mediator proposes compromises. The platform records every step and evaluates the outcome.
 
 ## Design principles
 
@@ -54,6 +54,18 @@ A deal closes when the responding principal and the financier accept. If the dea
 
 Issues negotiated: unit price, payment days, whether the invoice is discounted on TReDS, and the share of the discounting cost the buyer absorbs.
 
+## A2A communication
+
+Every party's agent is an A2A server built with the official A2A Python SDK (protocol version 1.0).
+
+- **Discovery.** Each agent publishes an Agent Card at `/.well-known/agent-card.json` describing its name, provider, JSON-RPC endpoint and skills. The orchestrator reads the card before connecting.
+- **Transport.** The orchestrator calls agents with JSON-RPC `SendMessage` requests. Each request carries one structured data part naming a skill and its inputs; the agent replies with one data part.
+- **Sessions.** `open_session` provisions the agent with its private policy for one negotiation. The profile stays inside the agent's server; later calls reference only the session id. `close_session` discards it.
+- **Skills.** Negotiators: `propose`, `respond`, `evaluate`, `shock`. Financier: `quote`, `announce`, `accepts`, `evaluate`, `shock`. `snapshot` exports end state for evaluation and is refused outside sandbox mode.
+- **Deployment options.** In the hosted setup all three agents are mounted on the platform under `/a2a/{role}`. Any agent can instead run on a company's own infrastructure: set `SUPPLIER_AGENT_URL`, `BUYER_AGENT_URL` or `FINANCIER_AGENT_URL` and the orchestrator negotiates with it over the network, unchanged.
+
+In-process and A2A agents implement the same ports, and the test suite checks that both produce identical negotiations.
+
 ## Agent decision model
 
 | Agent | Utility | Walk-away option |
@@ -71,7 +83,7 @@ Finished negotiations are compared with single-objective baselines (buyer-only A
 ## Repository structure
 
 ```
-tradecredit/
+sandhi/
 ├── README.md
 ├── ARCHITECTURE.md
 ├── backend/
@@ -97,7 +109,10 @@ tradecredit/
 │   │   │   └── runner.py           Background execution and persistence
 │   │   ├── db/                     SQLAlchemy session, tables, repository
 │   │   ├── api/                    Schemas and REST/SSE routes
-│   │   ├── a2a/                    A2A agent servers and client ports    (Phase B2)
+│   │   ├── a2a/                    A2A layer
+│   │   │   ├── protocol.py         Wire format, skills, JSON-RPC envelopes
+│   │   │   ├── server.py           Agent Cards, executor, hosted agent servers
+│   │   │   └── client.py           Remote agent ports used by the orchestrator
 │   │   ├── mcp_servers/            Compliance, TReDS and ERP MCP servers (Phase B3)
 │   │   └── auth/                   Authentication and organisations      (Phase B4)
 │   └── tests/
@@ -108,7 +123,9 @@ tradecredit/
 
 | Method | Path | Purpose |
 |---|---|---|
+| GET | `/` | Redirects to the API documentation |
 | GET | `/api/health` | Service status |
+| GET | `/api/agents` | Hosted agents and their A2A Agent Cards |
 | GET | `/api/scenarios` | Scenario catalog with public spec and default profiles |
 | GET | `/api/shocks` | Available market shocks |
 | POST | `/api/negotiations` | Start a negotiation (runs in the background) |
@@ -117,6 +134,13 @@ tradecredit/
 | GET | `/api/negotiations/{id}/events` | Event log |
 | GET | `/api/negotiations/{id}/stream` | Live Server-Sent Events stream |
 | GET | `/api/negotiations/{id}/evaluation` | Comparison with baselines, deal zone |
+
+A2A endpoints per agent (`supplier`, `buyer`, `financier`):
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/a2a/{role}/.well-known/agent-card.json` | Agent Card |
+| POST | `/a2a/{role}/` | A2A JSON-RPC endpoint (`SendMessage`) |
 
 Interactive documentation is served at `/docs`.
 
@@ -138,7 +162,7 @@ Interactive documentation is served at `/docs`.
 | Phase | Scope | Status |
 |---|---|---|
 | B1 | Core engine as a service, REST API, live stream, persistence, tests | Done |
-| B2 | A2A agent servers with Agent Cards; orchestrator negotiates over A2A | Planned |
+| B2 | A2A agent servers with Agent Cards; orchestrator negotiates over A2A | Done |
 | B3 | MCP servers for compliance, TReDS rates and ERP cash data | Planned |
 | B4 | Authentication, organisations, human approval, audit trail, term sheet | Planned |
 | F1–F3 | Web app: dashboard, negotiation room, policy console, outcomes | Planned |

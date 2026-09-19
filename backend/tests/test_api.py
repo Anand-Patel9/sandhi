@@ -37,8 +37,15 @@ def test_full_lifecycle():
             text = "".join(s.iter_text())
         assert "event: deal" in text and "event: end" in text
 
+        assert done["outcome"]["transport"] == "a2a"
+        assert events[0]["message"].startswith("Connected over A2A")
+
         ev = client.get(f"/api/negotiations/{nid}/evaluation").json()
         assert ev["pareto_efficient"] and len(ev["approaches"]) == 6
+
+        agents = client.get("/api/agents").json()
+        assert {a["role"] for a in agents} == {"supplier", "buyer", "financier"}
+        assert client.get("/", follow_redirects=False).headers["location"] == "/docs"
 
 
 def test_validation_rejects_unknown_shock():
