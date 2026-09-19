@@ -16,11 +16,12 @@ from ..agents.financier import FinancierAgent
 from ..agents.mediator import Mediator
 from ..agents.supplier import SupplierAgent
 from ..config import get_settings
-from ..core.models import Event, Scenario, Shock
+from ..core.models import Event, Scenario, Shock, Terms
 from ..core.scenarios import get_scenario
 from ..db import repository as repo
 from ..db.session import session_scope
 from ..llm.client import OFFLINE, LLMClient
+from ..mcp_servers.client import MCPToolbox, default_toolbox
 from .engine import NegotiationEngine
 
 log = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ class Assembly:
     engines: Dict[str, str]
     remote: List[RemoteAgent] = field(default_factory=list)
     http: Optional[httpx.Client] = None
+    sources: Dict[str, List[str]] = field(default_factory=dict)
 
     def connection_event(self) -> Optional[Event]:
         if self.transport != "a2a":
@@ -47,6 +49,13 @@ class Assembly:
                   for a in self.remote]
         names = ", ".join(a["card"] or a["name"] for a in agents)
         return Event("info", 0, "system", f"Connected over A2A to {names}.", meta={"agents": agents})
+
+    def data_event(self) -> Optional[Event]:
+        used = {role: s for role, s in self.sources.items() if s}
+        if not used:
+            return None
+        text = "; ".join(f"{role} agent read {', '.join(s)}" for role, s in used.items())
+        return Event("info", 0, "system", f"Live data loaded over MCP: {text}.", meta={"sources": used})
 
     def close(self) -> None:
         for agent in self.remote:
@@ -82,6 +91,14 @@ def make_llm(provider: str) -> LLMClient:
     return LLMClient.create(provider, settings.api_key_for(provider), settings.model_for(provider))
 
 
+def compliance_checker(tools: MCPToolbox, sc: Scenario):
+    def check(terms: Terms) -> Optional[dict]:
+        return tools.try_call("compliance", "check_payment_terms", payment_days=terms.days,
+                              via_treds=terms.treds, invoice_value=terms.price * sc.spec.quantity,
+                              bank_rate=sc.market.bank_rate, legal_limit_days=sc.spec.legal_limit_days)
+    return check
+
+
 def build_engine(config: dict, transport: Optional[str] = None,
                  http: Optional[httpx.Client] = None) -> Assembly:
     settings = get_settings()
@@ -90,6 +107,7 @@ def build_engine(config: dict, transport: Optional[str] = None,
     transport = transport or config.get("transport") or settings.agent_transport
     shocks = [Shock(s["key"], int(s["at_round"])) for s in config.get("shocks") or []]
     mediator_llm = make_llm(providers["mediator"])
+    tools = default_toolbox()
     remote: List[RemoteAgent] = []
 
     if transport == "a2a":
@@ -98,7 +116,7 @@ def build_engine(config: dict, transport: Optional[str] = None,
         try:
             for role in PARTIES:
                 agent = connect(role, settings.agent_url(role), http)
-                agent.open(getattr(sc, role), providers[role])
+                agent.open(getattr(sc, role), providers[role], sc.market)
                 remote.append(agent)
                 agents[role] = agent
         except Exception:
@@ -108,13 +126,18 @@ def build_engine(config: dict, transport: Optional[str] = None,
             raise
         engines = {role: agents[role].engine for role in PARTIES}
     else:
-        agents = {role: LOCAL_CLASSES[role](getattr(sc, role), make_llm(providers[role])) for role in PARTIES}
+        agents = {role: LOCAL_CLASSES[role](getattr(sc, role), make_llm(providers[role]), tools=tools)
+                  for role in PARTIES}
+        for agent in agents.values():
+            agent.bootstrap(sc.market)
         engines = {role: agents[role].llm.label for role in PARTIES}
     engines["mediator"] = mediator_llm.label
 
     engine = NegotiationEngine(sc.spec, sc.market, agents["supplier"], agents["buyer"],
-                               agents["financier"], Mediator(mediator_llm), shocks)
-    return Assembly(sc, engine, transport, engines, remote, http if transport == "a2a" else None)
+                               agents["financier"], Mediator(mediator_llm), shocks,
+                               compliance=compliance_checker(tools, sc) if tools else None)
+    sources = {role: list(agents[role].sources) for role in PARTIES}
+    return Assembly(sc, engine, transport, engines, remote, http if transport == "a2a" else None, sources)
 
 
 def final_state(assembly: Assembly) -> dict:
@@ -137,8 +160,8 @@ def run_negotiation(negotiation_id: str) -> None:
 
         assembly = build_engine(config)
         seq = 0
-        opening = assembly.connection_event()
-        for event in itertools.chain([opening] if opening else [], assembly.engine.run()):
+        opening = [e for e in (assembly.connection_event(), assembly.data_event()) if e]
+        for event in itertools.chain(opening, assembly.engine.run()):
             seq += 1
             with session_scope() as db:
                 repo.add_event(db, negotiation_id, seq, event)

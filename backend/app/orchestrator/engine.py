@@ -10,7 +10,7 @@ Round protocol:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterator, List, Optional
+from typing import Callable, Dict, Iterator, List, Optional
 
 from ..agents.base import FinancierPort, NegotiatorPort, TurnContext
 from ..agents.mediator import Mediator
@@ -30,10 +30,12 @@ class Outcome:
     redactions: int = 0
     llm_messages: int = 0
     template_messages: int = 0
+    compliance: Optional[dict] = None
 
     def to_dict(self) -> dict:
         return {"agreed": self.agreed, "terms": self.terms.to_dict() if self.terms else None,
                 "round": self.round, "via": self.via, "values": self.values,
+                "compliance": self.compliance,
                 "redactions": self.redactions, "llm_messages": self.llm_messages,
                 "template_messages": self.template_messages}
 
@@ -41,7 +43,8 @@ class Outcome:
 class NegotiationEngine:
     def __init__(self, spec: DealSpec, market: MarketState, supplier: NegotiatorPort,
                  buyer: NegotiatorPort, financier: FinancierPort, mediator: Mediator,
-                 shocks: Optional[List[Shock]] = None):
+                 shocks: Optional[List[Shock]] = None,
+                 compliance: Optional[Callable[[Terms], Optional[dict]]] = None):
         self.spec = spec
         self.market = market
         self.supplier = supplier
@@ -50,6 +53,7 @@ class NegotiationEngine:
         self.mediator = mediator
         self.agents = {"supplier": supplier, "buyer": buyer, "financier": financier}
         self.shocks = sorted(shocks or [], key=lambda s: s.at_round)
+        self.compliance = compliance
         self.recent: List[str] = []
         self.outcome: Optional[Outcome] = None
         self._stats = {"redactions": 0, "llm": 0, "template": 0}
@@ -62,6 +66,10 @@ class NegotiationEngine:
     def _values(self, terms: Terms, ctx: TurnContext) -> Dict[str, float]:
         return {role: agent.evaluate(terms, ctx) for role, agent in self.agents.items()}
 
+    def _check(self, terms: Terms) -> dict:
+        report = self.compliance(terms) if self.compliance else None
+        return {"compliance": report} if report else {}
+
     def _count(self, redacted: bool, used_llm: bool) -> None:
         self._stats["redactions"] += int(redacted)
         self._stats["llm" if used_llm else "template"] += 1
@@ -71,7 +79,8 @@ class NegotiationEngine:
             agreed=agreed, terms=terms, round=t, via=via,
             values=self._values(terms, ctx) if terms else {},
             redactions=self._stats["redactions"], llm_messages=self._stats["llm"],
-            template_messages=self._stats["template"])
+            template_messages=self._stats["template"],
+            compliance=self._check(terms).get("compliance") if terms else None)
         return self.outcome
 
     def run(self) -> Iterator[Event]:
@@ -115,7 +124,7 @@ class NegotiationEngine:
                 offer = proposal.terms
                 last[proposer.role] = offer
                 values = self._values(offer, ctx)
-                yield Event("offer", t, proposer.role, proposal.message, offer, values)
+                yield Event("offer", t, proposer.role, proposal.message, offer, values, self._check(offer))
                 if proposal.redacted:
                     yield Event("privacy", t, proposer.role, "Privacy guard redacted a private number.")
 
@@ -131,7 +140,7 @@ class NegotiationEngine:
                 ctx = self._ctx(t, rate)
                 message = self.mediator.speak(pkg, last["supplier"], last["buyer"], t, spec)
                 values = self._values(pkg, ctx)
-                yield Event("mediation", t, "mediator", message, pkg, values)
+                yield Event("mediation", t, "mediator", message, pkg, values, self._check(pkg))
                 verdicts = {"supplier": self.supplier.respond(pkg, ctx),
                             "buyer": self.buyer.respond(pkg, ctx),
                             "financier": self.financier.accepts(pkg, ctx)}

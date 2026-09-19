@@ -44,12 +44,14 @@ class RemoteAgent:
         self.session = str(uuid.uuid4())
         self.name = role.title()
         self.engine = ""
+        self.sources: list = []
 
-    def open(self, profile, llm_provider: str) -> None:
+    def open(self, profile, llm_provider: str, market) -> None:
         data = self.conn.call("open_session", session=self.session, profile=asdict(profile),
-                              llm_provider=llm_provider)
+                              llm_provider=llm_provider, market=asdict(market))
         self.name = data.get("name", self.name)
         self.engine = data.get("engine", "")
+        self.sources = list(data.get("sources") or [])
 
     def close(self) -> None:
         try:

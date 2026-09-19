@@ -66,6 +66,20 @@ Every party's agent is an A2A server built with the official A2A Python SDK (pro
 
 In-process and A2A agents implement the same ports, and the test suite checks that both produce identical negotiations.
 
+## MCP tools
+
+Agents reach company data and market information through Model Context Protocol (MCP) servers, built with the official MCP Python SDK and served over streamable HTTP.
+
+| Server | Tools | Used by | Effect |
+|---|---|---|---|
+| `compliance` | `check_payment_terms`, `payment_rules` | Orchestrator, negotiators | Every offer and the final deal carry an MSMED Act / Section 43B(h) report; LLM prompts include the rules |
+| `treds` | `market_rates`, `list_platforms` | Financier | Quotes are capped at the market band for the buyer's credit rating |
+| `erp` | `cash_position`, `list_entities` | Supplier | Cash runway is read from the ledger instead of being typed in |
+
+Agents load their data when a session opens and record which tools they used; the negotiation log shows the sources without revealing the values. If a tool server is unreachable, agents fall back to their configured profile and the negotiation continues.
+
+In the hosted setup the three servers are mounted under `/mcp/{name}/`. A customer connects its own systems by pointing `ERP_MCP_URL` (or the others) at an MCP server in front of its ERP, for example Tally or SAP, with no change to agent code. The bundled servers use sandbox data.
+
 ## Agent decision model
 
 | Agent | Utility | Walk-away option |
@@ -113,7 +127,12 @@ sandhi/
 │   │   │   ├── protocol.py         Wire format, skills, JSON-RPC envelopes
 │   │   │   ├── server.py           Agent Cards, executor, hosted agent servers
 │   │   │   └── client.py           Remote agent ports used by the orchestrator
-│   │   ├── mcp_servers/            Compliance, TReDS and ERP MCP servers (Phase B3)
+│   │   ├── mcp_servers/            MCP layer
+│   │   │   ├── compliance.py       MSMED Act and Section 43B(h) checks
+│   │   │   ├── treds.py            TReDS market rates and platforms
+│   │   │   ├── erp.py              Company cash position (sandbox ledger)
+│   │   │   ├── registry.py         Hosted servers and their lifecycle
+│   │   │   └── client.py           Synchronous MCP toolbox for agents
 │   │   └── auth/                   Authentication and organisations      (Phase B4)
 │   └── tests/
 └── frontend/                       React + Vite + TypeScript web app      (Phases F1–F3)
@@ -126,6 +145,7 @@ sandhi/
 | GET | `/` | Redirects to the API documentation |
 | GET | `/api/health` | Service status |
 | GET | `/api/agents` | Hosted agents and their A2A Agent Cards |
+| GET | `/api/tools` | MCP tool servers, status and tools |
 | GET | `/api/scenarios` | Scenario catalog with public spec and default profiles |
 | GET | `/api/shocks` | Available market shocks |
 | POST | `/api/negotiations` | Start a negotiation (runs in the background) |
@@ -141,6 +161,8 @@ A2A endpoints per agent (`supplier`, `buyer`, `financier`):
 |---|---|---|
 | GET | `/a2a/{role}/.well-known/agent-card.json` | Agent Card |
 | POST | `/a2a/{role}/` | A2A JSON-RPC endpoint (`SendMessage`) |
+
+MCP endpoints: `POST /mcp/{compliance|treds|erp}/` (streamable HTTP).
 
 Interactive documentation is served at `/docs`.
 
@@ -163,6 +185,6 @@ Interactive documentation is served at `/docs`.
 |---|---|---|
 | B1 | Core engine as a service, REST API, live stream, persistence, tests | Done |
 | B2 | A2A agent servers with Agent Cards; orchestrator negotiates over A2A | Done |
-| B3 | MCP servers for compliance, TReDS rates and ERP cash data | Planned |
+| B3 | MCP servers for compliance, TReDS rates and ERP cash data | Done |
 | B4 | Authentication, organisations, human approval, audit trail, term sheet | Planned |
 | F1–F3 | Web app: dashboard, negotiation room, policy console, outcomes | Planned |

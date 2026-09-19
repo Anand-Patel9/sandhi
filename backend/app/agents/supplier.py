@@ -1,7 +1,7 @@
 """MSME supplier agent: wants a fair price and cash before its runway ends."""
 from __future__ import annotations
 
-from ..core.models import SupplierProfile, Terms
+from ..core.models import MarketState, SupplierProfile, Terms
 from ..core.utilities import supplier_surplus
 from .base import TurnContext
 from .negotiator import NegotiatorAgent
@@ -10,6 +10,14 @@ from .negotiator import NegotiatorAgent
 class SupplierAgent(NegotiatorAgent):
     role = "supplier"
     profile: SupplierProfile
+
+    def bootstrap(self, market: MarketState) -> None:
+        super().bootstrap(market)
+        if self.tools and self.profile.erp_entity:
+            position = self.tools.try_call("erp", "cash_position", entity_id=self.profile.erp_entity)
+            if position:
+                self.profile.runway_days = int(position["runway_days"])
+                self.sources.append("erp.cash_position")
 
     def surplus(self, t: Terms, ctx: TurnContext) -> float:
         return supplier_surplus(t, self.profile, ctx.spec)

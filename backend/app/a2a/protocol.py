@@ -51,9 +51,10 @@ def ctx_from_wire(d: dict) -> TurnContext:
 
 def profile_from_wire(role: str, d: dict):
     cls = PROFILE_TYPES[role]
-    fields = cls.__dataclass_fields__
     values = {}
-    for name, f in fields.items():
+    for name, f in cls.__dataclass_fields__.items():
+        if name not in d:
+            continue
         raw = d[name]
         values[name] = int(raw) if f.type in ("int", int) else raw
     return cls(**values)

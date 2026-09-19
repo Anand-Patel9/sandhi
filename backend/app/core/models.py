@@ -61,6 +61,7 @@ class SupplierProfile:
     batna_price: float
     batna_days: int
     concession_beta: float
+    erp_entity: str = ""
 
 
 @dataclass
@@ -84,6 +85,7 @@ class FinancierProfile:
     loss_given_default: float
     opening_spread: float
     concession_beta: float
+    buyer_rating: str = "AA"
 
 
 @dataclass

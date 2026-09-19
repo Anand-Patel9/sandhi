@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     financier_agent_url: Optional[str] = None
     a2a_timeout_seconds: float = 60.0
 
+    mcp_enabled: bool = True
+    compliance_mcp_url: Optional[str] = None
+    treds_mcp_url: Optional[str] = None
+    erp_mcp_url: Optional[str] = None
+    mcp_timeout_seconds: float = 20.0
+
     pace_seconds: float = 0.4
     max_concurrent_negotiations: int = 4
     sandbox_mode: bool = True
@@ -38,6 +44,11 @@ class Settings(BaseSettings):
 
     def agent_url(self, role: str) -> str:
         return getattr(self, f"{role}_agent_url", None) or f"{self.public_base_url.rstrip('/')}/a2a/{role}"
+
+    def mcp_urls(self) -> dict:
+        base = self.public_base_url.rstrip("/")
+        return {name: getattr(self, f"{name}_mcp_url", None) or f"{base}/mcp/{name}/"
+                for name in ("compliance", "treds", "erp")}
 
     def api_key_for(self, provider: str) -> Optional[str]:
         return getattr(self, f"{provider}_api_key", None)

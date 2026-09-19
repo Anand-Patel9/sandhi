@@ -2,23 +2,38 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import List
+from typing import List, Optional
 
 from ..core.guards import redact_private
-from ..core.models import FinancierProfile, Terms
+from ..core.models import FinancierProfile, MarketState, Terms
 from ..core.scenarios import apply_private_shock
 from ..core.strategy import candidate_grid
 from ..core.utilities import financier_floor_rate, financier_surplus
 from ..llm.client import LLMClient, LLMError
+from ..mcp_servers.client import MCPToolbox
 from .base import Announcement, TurnContext
 
 
 class FinancierAgent:
     role = "financier"
 
-    def __init__(self, profile: FinancierProfile, llm: LLMClient, seed: int = 7):
+    def __init__(self, profile: FinancierProfile, llm: LLMClient, seed: int = 7,
+                 tools: Optional[MCPToolbox] = None):
         self.profile = profile
         self.llm = llm
+        self.tools = tools
+        self.rate_cap: Optional[float] = None
+        self.sources: List[str] = []
+
+    def bootstrap(self, market: MarketState) -> None:
+        """Pull the market rate band so quotes stay competitive with other TReDS financiers."""
+        if not self.tools:
+            return
+        band = self.tools.try_call("treds", "market_rates", buyer_rating=self.profile.buyer_rating,
+                                   bank_rate=market.bank_rate)
+        if band:
+            self.rate_cap = float(band["rate_high"])
+            self.sources.append("treds.market_rates")
 
     @property
     def name(self) -> str:
@@ -30,7 +45,10 @@ class FinancierAgent:
     def quote(self, ctx: TurnContext) -> float:
         p = self.profile
         frac = 1.0 - (min(ctx.round, ctx.max_rounds) / ctx.max_rounds) ** (1.0 / p.concession_beta)
-        return round(self.floor() + p.opening_spread * max(0.05, frac), 4)
+        rate = self.floor() + p.opening_spread * max(0.05, frac)
+        if self.rate_cap is not None:
+            rate = max(self.floor(), min(rate, self.rate_cap))
+        return round(rate, 4)
 
     def accepts(self, terms: Terms, ctx: TurnContext) -> bool:
         return (not terms.treds) or financier_surplus(terms, self.profile, ctx.spec) >= -1e-6
@@ -67,6 +85,8 @@ class FinancierAgent:
 
     def on_shock(self, key: str) -> None:
         apply_private_shock(key, self.role, self.profile)
+        if key == "rate_hike" and self.rate_cap is not None:
+            self.rate_cap += 0.005
 
     def snapshot(self) -> dict:
         return asdict(self.profile)

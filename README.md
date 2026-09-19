@@ -14,6 +14,7 @@ Sandhi gives each party its own autonomous agent with private goals, constraints
 
 - **Private by design.** Each agent keeps its costs, cash position and walk-away options inside its own server. The orchestrator only sees public offers.
 - **The LLM argues, the code decides.** Deterministic utility functions decide what an agent can accept; the LLM chooses among valid offers and writes the message.
+- **Live data over MCP.** Agents read their company's cash position from ERP, TReDS market rates and payment-compliance rules through Model Context Protocol tool servers.
 - **Guarded messages.** Private numbers are redacted and mis-quoted prices are rejected before any message is sent.
 - **Measured outcomes.** Every deal is compared with single-objective AI baselines and the full-information optimum.
 
@@ -43,6 +44,12 @@ Follow it live:
 
 ```bash
 curl -N http://localhost:8000/api/negotiations/<id>/stream
+```
+
+List the MCP tool servers and their tools:
+
+```bash
+curl http://localhost:8000/api/tools
 ```
 
 Inspect an agent's A2A Agent Card:

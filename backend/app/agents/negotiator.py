@@ -6,20 +6,32 @@ from dataclasses import asdict, replace
 from typing import List, Optional
 
 from ..core.guards import prices_consistent, redact_private
-from ..core.models import Terms
+from ..core.models import MarketState, Terms
 from ..core.scenarios import apply_private_shock
 from ..core.strategy import aspiration, candidate_grid, rank_options
 from ..llm.client import LLMClient, LLMError
+from ..mcp_servers.client import MCPToolbox
 from .base import Proposal, TurnContext
 
 
 class NegotiatorAgent:
     role = "negotiator"
 
-    def __init__(self, profile, llm: LLMClient, seed: int = 7):
+    def __init__(self, profile, llm: LLMClient, seed: int = 7, tools: Optional[MCPToolbox] = None):
         self.profile = profile
         self.llm = llm
+        self.tools = tools
         self.rng = random.Random(seed + sum(map(ord, self.role)))
+        self.rules = ""
+        self.sources: List[str] = []
+
+    def bootstrap(self, market: MarketState) -> None:
+        """Load live data through MCP before negotiating."""
+        if self.tools and self.llm.online:
+            rules = self.tools.try_call("compliance", "payment_rules")
+            if rules:
+                self.rules = str(rules)
+                self.sources.append("compliance.payment_rules")
 
     @property
     def name(self) -> str:
@@ -105,5 +117,6 @@ class NegotiatorAgent:
         return Proposal(chosen, message, redacted, used_llm)
 
     def system_prompt(self) -> str:
+        rules = f" Applicable rules: {self.rules}" if self.rules else ""
         return (f"You are the autonomous negotiation agent for {self.name} in an Indian MSME "
-                f"trade-credit deal. {self.private_brief()} Be firm but professional.")
+                f"trade-credit deal. {self.private_brief()}{rules} Be firm but professional.")

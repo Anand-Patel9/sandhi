@@ -19,7 +19,9 @@ from ..agents.buyer import BuyerAgent
 from ..agents.financier import FinancierAgent
 from ..agents.supplier import SupplierAgent
 from ..config import get_settings
+from ..core.models import MarketState
 from ..llm.client import OFFLINE, LLMClient
+from ..mcp_servers.client import default_toolbox
 from .protocol import (A2A_VERSION, FINANCIER_SKILLS, NEGOTIATOR_SKILLS, ctx_from_wire,
                        profile_from_wire, terms_from_wire, terms_to_wire)
 
@@ -102,9 +104,10 @@ class NegotiationAgentExecutor(AgentExecutor):
         provider = p.get("llm_provider") or OFFLINE
         llm = LLMClient.create(provider, settings.api_key_for(provider), settings.model_for(provider))
         profile = profile_from_wire(self.role, p["profile"])
-        agent = AGENT_CLASSES[self.role](profile, llm)
+        agent = AGENT_CLASSES[self.role](profile, llm, tools=default_toolbox())
+        agent.bootstrap(MarketState(bank_rate=float(p["market"]["bank_rate"])))
         self.sessions.open(p["session"], agent)
-        return {"ok": True, "name": agent.name, "engine": llm.label}
+        return {"ok": True, "name": agent.name, "engine": llm.label, "sources": agent.sources}
 
     def _propose(self, p: dict) -> dict:
         proposal = self.sessions.get(p["session"]).propose(ctx_from_wire(p["ctx"]))

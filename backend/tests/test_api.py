@@ -39,6 +39,9 @@ def test_full_lifecycle():
 
         assert done["outcome"]["transport"] == "a2a"
         assert events[0]["message"].startswith("Connected over A2A")
+        assert events[1]["message"].startswith("Live data loaded over MCP")
+        assert done["outcome"]["compliance"]["msmed_compliant"]
+        assert len(client.get("/api/tools").json()) == 3
 
         ev = client.get(f"/api/negotiations/{nid}/evaluation").json()
         assert ev["pareto_efficient"] and len(ev["approaches"]) == 6
