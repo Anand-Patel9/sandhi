@@ -115,3 +115,16 @@ def test_validation_rejects_unknown_shock():
         r = client.post("/api/negotiations", headers=login(client, "admin"),
                         json={"scenario": "auto_parts", "shocks": [{"key": "alien_invasion", "at_round": 2}]})
         assert r.status_code == 422
+
+
+def test_running_negotiation_can_be_stopped():
+    with TestClient(app) as client:
+        admin = login(client, "admin")
+        nid = start(client, admin, pace_seconds=0.3)
+        time.sleep(1.0)
+        assert client.post(f"/api/negotiations/{nid}/cancel", headers=admin).status_code == 200
+        done = wait_until(client, nid, admin, states=("cancelled", "agreed", "awaiting_approval"))
+        assert done["status"] == "cancelled"
+        events = client.get(f"/api/negotiations/{nid}/events", headers=admin).json()
+        assert events[-1]["kind"] == "cancelled"
+        assert client.post(f"/api/negotiations/{nid}/cancel", headers=admin).status_code == 409

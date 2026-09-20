@@ -22,7 +22,11 @@ Sandhi gives each party its own autonomous agent with private goals, constraints
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 
-## Quick start (backend)
+## Quick start
+
+Run the backend and the web app in two terminals.
+
+### Backend
 
 ```bash
 cd backend
@@ -32,7 +36,7 @@ cp .env.example .env                                  # add an LLM key, or keep 
 uvicorn app.main:app --reload
 ```
 
-Open http://localhost:8000 for the interactive API documentation, then click **Authorize** and sign in with a demo account.
+The backend serves interactive API documentation at http://localhost:8000; click **Authorize** and sign in with a demo account.
 
 | Demo account | Organisation | Role |
 |---|---|---|
@@ -73,6 +77,16 @@ Inspect an agent's A2A Agent Card:
 ```bash
 curl http://localhost:8000/a2a/supplier/.well-known/agent-card.json
 ```
+
+### Web app
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:5173 and pick a sample company on the sign-in page. The dev server forwards API calls to the backend on port 8000.
 
 ## Tests
 

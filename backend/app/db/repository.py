@@ -11,7 +11,7 @@ from ..core.audit import GENESIS, event_hash, payload_of
 from ..core.models import Event
 from .tables import ApprovalRow, EventRow, NegotiationRow, OrganizationRow, UserRow
 
-TERMINAL = {"agreed", "no_deal", "failed", "rejected"}
+TERMINAL = {"agreed", "no_deal", "failed", "rejected", "cancelled"}
 STREAM_END = TERMINAL | {"awaiting_approval"}
 
 

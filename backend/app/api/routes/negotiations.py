@@ -87,6 +87,15 @@ async def stream_events(negotiation_id: str, request: Request, after: int = Quer
     return StreamingResponse(event_source(), media_type="text/event-stream", headers=headers)
 
 
+@router.post("/{negotiation_id}/cancel", response_model=NegotiationOut)
+def cancel(negotiation_id: str, db: Session = Depends(get_db)):
+    row = _get_or_404(db, negotiation_id)
+    if row.status not in ("pending", "running"):
+        raise HTTPException(409, f"Only a running negotiation can be stopped (status: {row.status})")
+    runner.request_cancel(negotiation_id)
+    return row
+
+
 @router.post("/{negotiation_id}/approval", response_model=NegotiationOut)
 def decide(negotiation_id: str, body: ApprovalIn, db: Session = Depends(get_db),
            user: UserRow = Depends(current_user)):

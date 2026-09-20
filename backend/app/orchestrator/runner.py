@@ -31,6 +31,11 @@ LOCAL_CLASSES = {"supplier": SupplierAgent, "buyer": BuyerAgent, "financier": Fi
 
 _executor = ThreadPoolExecutor(max_workers=get_settings().max_concurrent_negotiations,
                                thread_name_prefix="negotiation")
+_cancelled: set = set()
+
+
+def request_cancel(negotiation_id: str) -> None:
+    _cancelled.add(negotiation_id)
 
 
 @dataclass
@@ -162,6 +167,13 @@ def run_negotiation(negotiation_id: str) -> None:
         assembly = build_engine(config)
         opening = [e for e in (assembly.connection_event(), assembly.data_event()) if e]
         for event in itertools.chain(opening, assembly.engine.run()):
+            if negotiation_id in _cancelled:
+                _cancelled.discard(negotiation_id)
+                with session_scope() as db:
+                    repo.append_event(db, negotiation_id, Event(
+                        "cancelled", event.round, "system", "Negotiation stopped by a user. No terms were agreed."))
+                    repo.set_status(db, negotiation_id, "cancelled")
+                return
             with session_scope() as db:
                 repo.append_event(db, negotiation_id, event)
             if pace and event.kind in ("offer", "mediation", "rate", "shock", "accept"):

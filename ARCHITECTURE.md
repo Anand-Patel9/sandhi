@@ -87,7 +87,7 @@ In the hosted setup the three servers are mounted under `/mcp/{name}/`. A custom
 - **Audit trail.** Every event is stored with the SHA-256 hash of its content and of the previous event's hash. `GET /api/negotiations/{id}/audit` recomputes the chain and reports the first altered entry, so any edit to the log after the fact is detected.
 - **Term sheet.** Once agreed, a PDF term sheet lists the parties, commercial terms, compliance report, approvals and the audit chain head.
 
-Negotiation states: `pending` → `running` → `awaiting_approval` → `agreed` or `rejected`; or `running` → `no_deal`; `failed` on errors.
+Negotiation states: `pending` → `running` → `awaiting_approval` → `agreed` or `rejected`; or `running` → `no_deal`; `running` → `cancelled` when a user stops it; `failed` on errors.
 
 ## Agent decision model
 
@@ -147,7 +147,15 @@ sandhi/
 │   │   ├── auth/                   Security, current-user dependency, demo seed
 │   │   └── documents/              Term-sheet PDF
 │   └── tests/
-└── frontend/                       React + Vite + TypeScript web app      (Phases F1–F3)
+└── frontend/                       React + Vite + TypeScript web app
+    ├── index.html, vite.config.ts  Entry page; dev proxy to the backend
+    ├── public/favicon.svg          App icon
+    └── src/
+        ├── main.tsx, App.tsx       Bootstrapping and routes
+        ├── styles.css              Design tokens and components
+        ├── lib/                    API client, auth, formatting, data hooks
+        ├── components/             Logo, stamps, rail, transcript, price chart, comparison
+        └── pages/                  Sign in, deals, new negotiation, deal room, sign-off, agents, data, audit
 ```
 
 ## API (current)
@@ -168,6 +176,7 @@ sandhi/
 | GET | `/api/negotiations/{id}/events` | Event log |
 | GET | `/api/negotiations/{id}/stream` | Live Server-Sent Events stream |
 | POST | `/api/negotiations/{id}/approval` | Approve or reject agreed terms for your organisation |
+| POST | `/api/negotiations/{id}/cancel` | Stop a running negotiation |
 | GET | `/api/negotiations/{id}/audit` | Verify the hash-chained event log |
 | GET | `/api/negotiations/{id}/evaluation` | Comparison with baselines, deal zone |
 | GET | `/api/negotiations/{id}/term-sheet` | PDF term sheet (after approval) |
@@ -199,6 +208,22 @@ Interactive documentation is served at `/docs`.
 | Database | Supabase PostgreSQL |
 | Frontend | Vercel |
 
+## Web app
+
+React 19 and TypeScript, built with Vite, with no UI framework: the design system lives in one stylesheet of tokens and components.
+
+| Screen | Route | What it does |
+|---|---|---|
+| Sign in | `/login` | Email and password, or one-click sample companies |
+| Deals | `/` | Ledger of every negotiation, filters, and the deal waiting for your signature |
+| Start a negotiation | `/new` | Choose the deal, market shocks, agent engine, deadline and pace |
+| Deal | `/deals/{id}` | Live negotiation room while agents talk (Server-Sent Events); review-and-sign view once they agree |
+| Agents | `/agents` | The A2A agents and their Agent Cards |
+| Data sources | `/data` | MCP tool servers, status and tools |
+| Audit | `/audit` | Verify any negotiation's hash chain |
+
+Visual identity: ink `#1B2440` on paper `#F6F7F4`; one colour per party used everywhere (supplier turmeric `#B9800E`, buyer blue `#3B5BA9`, financier teal `#2B7A71`); Instrument Sans with tabular figures; deal status shown as rubber stamps. The logo draws the three parties' positions converging on one seal.
+
 ## Delivery phases
 
 | Phase | Scope | Status |
@@ -207,4 +232,4 @@ Interactive documentation is served at `/docs`.
 | B2 | A2A agent servers with Agent Cards; orchestrator negotiates over A2A | Done |
 | B3 | MCP servers for compliance, TReDS rates and ERP cash data | Done |
 | B4 | Authentication, organisations, human approval, audit trail, term sheet | Done |
-| F1–F3 | Web app: dashboard, negotiation room, policy console, outcomes | Planned |
+| F1–F3 | Web app: sign-in, deals, live negotiation room, sign-off, agents, data sources, audit | Done |
