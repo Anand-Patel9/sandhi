@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 import { ConvergenceArt, Mark } from '../components/Logo'
 import { useAuth } from '../lib/auth'
 
@@ -40,11 +40,11 @@ export function Login() {
   return (
     <div className="login">
       <section className="login-art">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <Link to="/about" aria-label="Sandhi home" style={{ display: 'flex', alignItems: 'center', gap: 14, color: 'inherit', textDecoration: 'none' }}>
           <Mark size={44} onDark stroke={5.5} />
           <span style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-0.03em' }}>Sandhi</span>
           <span style={{ fontFamily: "'Tiro Devanagari Hindi', serif", fontSize: 22, color: 'var(--rail-dim)' }}>संधि</span>
-        </div>
+        </Link>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
           <ConvergenceArt />
           <h1>Payment terms every party can sign.</h1>
