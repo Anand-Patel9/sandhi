@@ -3,7 +3,6 @@ import { Mark } from '../components/Logo'
 import { API_BASE } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
-const GITHUB = 'https://github.com/Anand-Patel9/sandhi'
 const DOCS = `${API_BASE || 'http://127.0.0.1:8000'}/docs`
 
 function HeroArt() {
@@ -77,7 +76,6 @@ export function Landing() {
           <a href="#how">How it works</a>
           <a href="#proof">Results</a>
           <a href="#tech">Technology</a>
-          <a href={GITHUB} target="_blank" rel="noreferrer">GitHub</a>
         </nav>
         <Link to={cta.to} className="btn lp-btn-light">{user ? 'Open app' : 'Sign in'}</Link>
       </header>
@@ -93,7 +91,7 @@ export function Landing() {
           </p>
           <div className="lp-cta-row">
             <Link to={cta.to} className="btn lp-btn-light btn-lg">{cta.label}</Link>
-            <a href={GITHUB} target="_blank" rel="noreferrer" className="btn lp-btn-ghost btn-lg">Read the code</a>
+            <a href="#how" className="btn lp-btn-ghost btn-lg">See how it works</a>
           </div>
           <p className="lp-fine">Sandbox with sample companies. One click to sign in, no sign-up.</p>
         </div>
@@ -213,7 +211,6 @@ export function Landing() {
         </div>
         <span>Built for the Apexium International Hackathon 2026</span>
         <div className="lp-footer-links">
-          <a href={GITHUB} target="_blank" rel="noreferrer">GitHub</a>
           <a href={DOCS} target="_blank" rel="noreferrer">API docs</a>
         </div>
       </footer>
